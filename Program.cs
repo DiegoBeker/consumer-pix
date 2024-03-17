@@ -105,34 +105,42 @@ consumer.Received += async (model, ea) =>
         {
             var content = new StringContent(message, Encoding.UTF8, "application/json");
             var response = await httpClient.PostAsync(webhookUrl, content);
+            DateTime responseTimeMinus120sec = DateTime.UtcNow.AddSeconds(-120);
+
             if (response.IsSuccessStatusCode)
             {
-                Console.WriteLine($"Response from destiny PSP: {response.StatusCode}");
-
-                string apiUpdateUrl = $"http://localhost:5041/payment/success/{payment.Id}";
-                var apiUpdateResponse = await httpClient.PatchAsync(apiUpdateUrl, null);
-
-                TransferStatusDTO status = new() { Id = payment.Id, Status = "Success" };
-                string json = JsonSerializer.Serialize(status);
-                var statusContent = new StringContent(json, Encoding.UTF8, "application/json");
-
-                var originResponse = await httpClient.PatchAsync(originUrl, statusContent);
-
-                if (apiUpdateResponse.IsSuccessStatusCode)
+                if (responseTimeMinus120sec <= creationTime)
                 {
-                    Console.WriteLine("Payment updated to Sucess on database");
-                }
 
-                if (originResponse.IsSuccessStatusCode)
-                {
-                    Console.WriteLine("Success notification sent with success to origin Psp");
-                }
-                else
-                {
-                    Console.WriteLine($"Error sending success Notification. Origin: {originResponse.StatusCode}");
-                }
+                    Console.WriteLine($"Response from destiny PSP: {response.StatusCode}");
 
-                channel.BasicAck(ea.DeliveryTag, false);
+                    string apiUpdateUrl = $"http://localhost:5041/payment/success/{payment.Id}";
+                    var apiUpdateResponse = await httpClient.PatchAsync(apiUpdateUrl, null);
+
+                    TransferStatusDTO status = new() { Id = payment.Id, Status = "Success" };
+                    string json = JsonSerializer.Serialize(status);
+                    var statusContent = new StringContent(json, Encoding.UTF8, "application/json");
+
+                    var originResponse = await httpClient.PatchAsync(originUrl, statusContent);
+
+                    if (apiUpdateResponse.IsSuccessStatusCode)
+                    {
+                        Console.WriteLine("Payment updated to Sucess on database");
+                    }
+
+                    if (originResponse.IsSuccessStatusCode)
+                    {
+                        Console.WriteLine("Success notification sent with success to origin Psp");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Error sending success Notification. Origin: {originResponse.StatusCode}");
+                    }
+
+                    channel.BasicAck(ea.DeliveryTag, false);
+                }else{
+                    channel.BasicReject(ea.DeliveryTag, true);
+                }
             }
             else
             {
