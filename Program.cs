@@ -1,4 +1,5 @@
 ﻿using System.Text;
+using System.Text.Json;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 ConnectionFactory factory = new ConnectionFactory
@@ -21,7 +22,7 @@ var channel = connection.CreateModel();
 
 channel.QueueDeclare(
     queue: "payments",
-    durable: false,
+    durable: true,
     exclusive: false,
     autoDelete: false,
     arguments: null
@@ -39,39 +40,102 @@ consumer.Received += async (model, ea) =>
     var message = Encoding.UTF8.GetString(body);
     Console.WriteLine($"Recebi {message}");
 
+    var headers = ea.BasicProperties.Headers;
+    DateTime creationTime = new DateTime();
 
-    // Enviar mensagem para o webhook
+    if (headers != null && headers.ContainsKey("creation_time"))
+    {
+        byte[] headerBytes = headers["creation_time"] as byte[];
+        if (headerBytes != null)
+        {
+            string creationTimeString = Encoding.UTF8.GetString(headerBytes);
+            if (DateTime.TryParse(creationTimeString, out creationTime))
+            {
+
+            }
+            else
+            {
+                Console.WriteLine($"Failed to parse creation time: {creationTimeString}");
+            }
+        }
+    }
+
     string webhookUrl = "http://localhost:5039/payments/pix";
-    Console.WriteLine($"Enviando para webhook: {webhookUrl}");
-    Console.WriteLine($"Conteúdo da mensagem: {message}");
-
+    Console.WriteLine($"Sending to webhook: {webhookUrl}");
+    Console.WriteLine($"{message}");
+    DateTime minus120sec = DateTime.UtcNow.AddSeconds(-120);
     HttpClient httpClient = new();
 
     try
     {
-        var content = new StringContent(message, Encoding.UTF8, "application/json");
-        var response = await httpClient.PostAsync(webhookUrl, content);
+        var payment = JsonSerializer.Deserialize<TransferStatus>(message);
+        Console.WriteLine($"Creation time: {creationTime} minus120sec: {minus120sec}");
+        Console.WriteLine($"Diff: {creationTime - minus120sec}");
 
-        // Verificando o status code da resposta
-        if (response.IsSuccessStatusCode)
+        if (minus120sec >= creationTime)
         {
-            Console.WriteLine($"Resposta do webhook: {response.StatusCode}");
+            Console.WriteLine("120 seconds Processing time expired. Sending Failed notification");
+
+            string notificationUrl = $"http://localhost:5041/payment/failed/{payment.Id}";
+            var notificationResponse = await httpClient.PatchAsync(notificationUrl, null);
+
+            if (notificationResponse.IsSuccessStatusCode)
+            {
+                Console.WriteLine("Failed notification sent with success");
+            }
+            else
+            {
+                Console.WriteLine($"Error sending failed Notification. Status code: {notificationResponse.StatusCode}");
+            }
+            channel.BasicReject(ea.DeliveryTag, false);
         }
         else
         {
-            Console.WriteLine($"Erro ao enviar para o webhook. Status code: {response.StatusCode}");
-            channel.BasicReject(ea.DeliveryTag, false);
+            var content = new StringContent(message, Encoding.UTF8, "application/json");
+            var response = await httpClient.PostAsync(webhookUrl, content);
+            if (response.IsSuccessStatusCode)
+            {
+                Console.WriteLine($"Response from destiny PSP: {response.StatusCode}");
+
+                string notificationUrl = $"http://localhost:5041/payment/success/{payment.Id}";
+                var notificationResponse = await httpClient.PatchAsync(notificationUrl, null);
+                channel.BasicAck(ea.DeliveryTag, false);
+            }
+            else
+            {
+                Console.WriteLine($"Error sending request to destiny PSP. Status code: {response.StatusCode}");
+                channel.BasicReject(ea.DeliveryTag, true);
+            }
         }
+
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"Erro ao enviar para o webhook: {ex.Message}");
+        var payment = JsonSerializer.Deserialize<TransferStatus>(message);
+        if (minus120sec >= creationTime)
+        {
+            Console.WriteLine("120 seconds Processing time expired. Sending Failed notification");
+
+            string notificationUrl = $"http://localhost:5041/payment/failed/{payment.Id}";
+            var notificationResponse = await httpClient.PatchAsync(notificationUrl, null);
+
+            if (notificationResponse.IsSuccessStatusCode)
+            {
+                Console.WriteLine("Failed notification sent with success");
+            }
+            else
+            {
+                Console.WriteLine($"Error sending failed Notification. Status code: {notificationResponse.StatusCode}");
+            }
+            channel.BasicReject(ea.DeliveryTag, false);
+        }
+        else
+        {
+            Console.WriteLine($"Error sending webhook: {ex.Message}");
+            channel.BasicReject(ea.DeliveryTag, true);
+        }
     }
-    finally
-    {
-        // Confirmar a entrega da mensagem apenas se o processamento for bem-sucedido
-        channel.BasicAck(ea.DeliveryTag, false);
-    }
+    Thread.Sleep(1000);
 };
 
 channel.BasicConsume(
