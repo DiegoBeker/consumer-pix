@@ -61,7 +61,6 @@ consumer.Received += async (model, ea) =>
 
     string webhookUrl = "http://localhost:5039/payments/pix";
     string originUrl = $"http://localhost:5039/payments/pix/";
-    string destinyUrl = $"http://localhost:5039/payments/pix/";
 
     Console.WriteLine($"Sending to: {webhookUrl}");
     Console.WriteLine($"{message}");
@@ -85,7 +84,6 @@ consumer.Received += async (model, ea) =>
             string json = JsonSerializer.Serialize(status);
             var statusContent = new StringContent(json, Encoding.UTF8, "application/json");
 
-            var destinyResponse = await httpClient.PatchAsync(destinyUrl, statusContent);
             var originResponse = await httpClient.PatchAsync(originUrl, statusContent);
 
             if (apiUpdateResponse.IsSuccessStatusCode)
@@ -93,13 +91,13 @@ consumer.Received += async (model, ea) =>
                 Console.WriteLine("Payment updated to Failed on database");
             }
 
-            if (originResponse.IsSuccessStatusCode && destinyResponse.IsSuccessStatusCode)
+            if (originResponse.IsSuccessStatusCode)
             {
-                Console.WriteLine("Failed notification sent with success to psps");
+                Console.WriteLine("Failed notification sent with success to OriginPsp");
             }
             else
             {
-                Console.WriteLine($"Error sending Failed Notification. Origin: {originResponse.StatusCode} Destiny: {destinyResponse.StatusCode}");
+                Console.WriteLine($"Error sending Failed Notification. Status code: {originResponse.StatusCode}");
             }
             channel.BasicReject(ea.DeliveryTag, false);
         }
@@ -118,7 +116,6 @@ consumer.Received += async (model, ea) =>
                 string json = JsonSerializer.Serialize(status);
                 var statusContent = new StringContent(json, Encoding.UTF8, "application/json");
 
-                var destinyResponse = await httpClient.PatchAsync(destinyUrl, statusContent);
                 var originResponse = await httpClient.PatchAsync(originUrl, statusContent);
 
                 if (apiUpdateResponse.IsSuccessStatusCode)
@@ -126,13 +123,13 @@ consumer.Received += async (model, ea) =>
                     Console.WriteLine("Payment updated to Sucess on database");
                 }
 
-                if (originResponse.IsSuccessStatusCode && destinyResponse.IsSuccessStatusCode)
+                if (originResponse.IsSuccessStatusCode)
                 {
-                    Console.WriteLine("Success notification sent with success");
+                    Console.WriteLine("Success notification sent with success to origin Psp");
                 }
                 else
                 {
-                    Console.WriteLine($"Error sending success Notification. Origin: {originResponse.StatusCode} Destiny: {destinyResponse.StatusCode}");
+                    Console.WriteLine($"Error sending success Notification. Origin: {originResponse.StatusCode}");
                 }
 
                 channel.BasicAck(ea.DeliveryTag, false);
