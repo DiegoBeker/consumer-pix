@@ -38,7 +38,6 @@ consumer.Received += async (model, ea) =>
 {
     var body = ea.Body.ToArray();
     var message = Encoding.UTF8.GetString(body);
-    Console.WriteLine($"Recebi {message}");
 
     var headers = ea.BasicProperties.Headers;
     DateTime creationTime = new DateTime();
@@ -61,7 +60,10 @@ consumer.Received += async (model, ea) =>
     }
 
     string webhookUrl = "http://localhost:5039/payments/pix";
-    Console.WriteLine($"Sending to webhook: {webhookUrl}");
+    string originUrl = $"http://localhost:5039/payments/pix/";
+    string destinyUrl = $"http://localhost:5039/payments/pix/";
+
+    Console.WriteLine($"Sending to: {webhookUrl}");
     Console.WriteLine($"{message}");
     DateTime minus120sec = DateTime.UtcNow.AddSeconds(-120);
     HttpClient httpClient = new();
@@ -76,16 +78,28 @@ consumer.Received += async (model, ea) =>
         {
             Console.WriteLine("120 seconds Processing time expired. Sending Failed notification");
 
-            string notificationUrl = $"http://localhost:5041/payment/failed/{payment.Id}";
-            var notificationResponse = await httpClient.PatchAsync(notificationUrl, null);
+            string apiUpdateUrl = $"http://localhost:5041/payment/failed/{payment.Id}";
+            var apiUpdateResponse = await httpClient.PatchAsync(apiUpdateUrl, null);
 
-            if (notificationResponse.IsSuccessStatusCode)
+            TransferStatusDTO status = new() { Id = payment.Id, Status = "Failed" };
+            string json = JsonSerializer.Serialize(status);
+            var statusContent = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var destinyResponse = await httpClient.PatchAsync(destinyUrl, statusContent);
+            var originResponse = await httpClient.PatchAsync(originUrl, statusContent);
+
+            if (apiUpdateResponse.IsSuccessStatusCode)
             {
-                Console.WriteLine("Failed notification sent with success");
+                Console.WriteLine("Payment updated to Failed on database");
+            }
+
+            if (originResponse.IsSuccessStatusCode && destinyResponse.IsSuccessStatusCode)
+            {
+                Console.WriteLine("Failed notification sent with success to psps");
             }
             else
             {
-                Console.WriteLine($"Error sending failed Notification. Status code: {notificationResponse.StatusCode}");
+                Console.WriteLine($"Error sending Failed Notification. Origin: {originResponse.StatusCode} Destiny: {destinyResponse.StatusCode}");
             }
             channel.BasicReject(ea.DeliveryTag, false);
         }
@@ -97,8 +111,30 @@ consumer.Received += async (model, ea) =>
             {
                 Console.WriteLine($"Response from destiny PSP: {response.StatusCode}");
 
-                string notificationUrl = $"http://localhost:5041/payment/success/{payment.Id}";
-                var notificationResponse = await httpClient.PatchAsync(notificationUrl, null);
+                string apiUpdateUrl = $"http://localhost:5041/payment/success/{payment.Id}";
+                var apiUpdateResponse = await httpClient.PatchAsync(apiUpdateUrl, null);
+
+                TransferStatusDTO status = new() { Id = payment.Id, Status = "Success" };
+                string json = JsonSerializer.Serialize(status);
+                var statusContent = new StringContent(json, Encoding.UTF8, "application/json");
+
+                var destinyResponse = await httpClient.PatchAsync(destinyUrl, statusContent);
+                var originResponse = await httpClient.PatchAsync(originUrl, statusContent);
+
+                if (apiUpdateResponse.IsSuccessStatusCode)
+                {
+                    Console.WriteLine("Payment updated to Sucess on database");
+                }
+
+                if (originResponse.IsSuccessStatusCode && destinyResponse.IsSuccessStatusCode)
+                {
+                    Console.WriteLine("Success notification sent with success");
+                }
+                else
+                {
+                    Console.WriteLine($"Error sending success Notification. Origin: {originResponse.StatusCode} Destiny: {destinyResponse.StatusCode}");
+                }
+
                 channel.BasicAck(ea.DeliveryTag, false);
             }
             else
@@ -116,16 +152,16 @@ consumer.Received += async (model, ea) =>
         {
             Console.WriteLine("120 seconds Processing time expired. Sending Failed notification");
 
-            string notificationUrl = $"http://localhost:5041/payment/failed/{payment.Id}";
-            var notificationResponse = await httpClient.PatchAsync(notificationUrl, null);
+            string apiUpdateUrl = $"http://localhost:5041/payment/failed/{payment.Id}";
+            var apiUpdateResponse = await httpClient.PatchAsync(apiUpdateUrl, null);
 
-            if (notificationResponse.IsSuccessStatusCode)
+            if (apiUpdateResponse.IsSuccessStatusCode)
             {
-                Console.WriteLine("Failed notification sent with success");
+                Console.WriteLine("Failed update sent with success");
             }
             else
             {
-                Console.WriteLine($"Error sending failed Notification. Status code: {notificationResponse.StatusCode}");
+                Console.WriteLine($"Error sending failed update. Status code: {apiUpdateResponse.StatusCode}");
             }
             channel.BasicReject(ea.DeliveryTag, false);
         }
@@ -135,7 +171,6 @@ consumer.Received += async (model, ea) =>
             channel.BasicReject(ea.DeliveryTag, true);
         }
     }
-    Thread.Sleep(1000);
 };
 
 channel.BasicConsume(
