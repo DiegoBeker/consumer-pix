@@ -63,7 +63,6 @@ consumer.Received += async (model, ea) =>
     string originUrl = $"http://localhost:5039/payments/pix/";
 
     Console.WriteLine($"Sending to: {webhookUrl}");
-    Console.WriteLine($"{message}");
     DateTime minus120sec = DateTime.UtcNow.AddSeconds(-120);
     HttpClient httpClient = new();
 
@@ -77,7 +76,7 @@ consumer.Received += async (model, ea) =>
         {
             Console.WriteLine("120 seconds Processing time expired. Sending Failed notification");
 
-            string apiUpdateUrl = $"http://localhost:5041/payment/failed/{payment.Id}";
+            string apiUpdateUrl = $"http://localhost:8080/payment/failed/{payment.Id}";
             var apiUpdateResponse = await httpClient.PatchAsync(apiUpdateUrl, null);
 
             TransferStatusDTO status = new() { Id = payment.Id, Status = "Failed" };
@@ -114,7 +113,7 @@ consumer.Received += async (model, ea) =>
 
                     Console.WriteLine($"Response from destiny PSP: {response.StatusCode}");
 
-                    string apiUpdateUrl = $"http://localhost:5041/payment/success/{payment.Id}";
+                    string apiUpdateUrl = $"http://localhost:8080/payment/success/{payment.Id}";
                     var apiUpdateResponse = await httpClient.PatchAsync(apiUpdateUrl, null);
 
                     TransferStatusDTO status = new() { Id = payment.Id, Status = "Success" };
@@ -157,7 +156,7 @@ consumer.Received += async (model, ea) =>
         {
             Console.WriteLine("120 seconds Processing time expired. Sending Failed notification");
 
-            string apiUpdateUrl = $"http://localhost:5041/payment/failed/{payment.Id}";
+            string apiUpdateUrl = $"http://localhost:8080/payment/failed/{payment.Id}";
             var apiUpdateResponse = await httpClient.PatchAsync(apiUpdateUrl, null);
 
             if (apiUpdateResponse.IsSuccessStatusCode)

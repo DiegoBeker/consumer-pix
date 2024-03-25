@@ -4,7 +4,7 @@
 
 - Open a terminal in the directory of the cloned project
 
-- Run
+- If rabbitMQ is not running yet. Ps: the main application already starts the service.
 
 ```bash
 docker compose up -d
